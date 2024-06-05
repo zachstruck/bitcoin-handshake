@@ -2,7 +2,7 @@ use std::io::Cursor;
 
 use binrw::BinWrite;
 
-use crate::{command::Command, header::Header, verack::VerackPayload};
+use crate::{command::Command, header::Header, verack_payload::VerackPayload};
 
 pub fn prepare_verack_message(payload: &VerackPayload) -> Result<Vec<u8>, binrw::error::Error> {
     let buf = vec![0u8; Header::HEADER_BYTE_SIZE];

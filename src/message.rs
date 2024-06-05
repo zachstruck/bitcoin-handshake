@@ -5,7 +5,7 @@ use binrw::BinRead;
 use crate::{
     command::Command,
     header::{ChecksumError, Header},
-    version::VersionPayload,
+    version_payload::VersionPayload,
 };
 
 #[derive(Debug)]

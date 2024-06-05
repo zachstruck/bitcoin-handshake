@@ -10,19 +10,19 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
-use verack::VerackPayload;
 use verack_message::prepare_verack_message;
-use version::VersionPayload;
+use verack_payload::VerackPayload;
 use version_message::prepare_version_message;
+use version_payload::VersionPayload;
 
 mod command;
 mod header;
 mod message;
 mod utils;
-mod verack;
 mod verack_message;
-mod version;
+mod verack_payload;
 mod version_message;
+mod version_payload;
 
 #[derive(Debug, Parser)]
 struct Args {
