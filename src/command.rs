@@ -1,6 +1,7 @@
 const VERACK_COMMAND: [u8; 12] = *b"verack\0\0\0\0\0\0";
 const VERSION_COMMAND: [u8; 12] = *b"version\0\0\0\0\0";
 
+#[derive(Debug, Clone, Copy)]
 pub enum Command {
     Verack,
     Version,

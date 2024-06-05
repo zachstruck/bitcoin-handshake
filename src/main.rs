@@ -1,10 +1,11 @@
 use std::{
     io::{Read, Write},
-    net::{IpAddr, TcpStream},
+    net::{SocketAddr, TcpStream},
     time::SystemTime,
 };
 
-use message::{parse_message, MessageParseError};
+use command::Command;
+use message::{parse_message, MessageParseError, MessageType};
 use verack::VerackPayload;
 use verack_message::prepare_verack_message;
 use version::VersionPayload;
@@ -20,90 +21,156 @@ mod version;
 mod version_message;
 
 fn main() {
-    let mut stream = TcpStream::connect("65.109.34.157:8333").unwrap();
-    println!("connected");
+    let socket_address = "65.109.34.157:8333"
+        .parse()
+        .expect("IP address and port should be syntactically valid");
+    let mut messaging_system = MessagingSystem::try_new(socket_address)
+        .expect("IP address and port should point to an available node");
 
     // Send my version message
-    {
-        let version_message = prepare_version_message(&VersionPayload::create(
-            SystemTime::now(),
-            "65.109.34.157".parse::<IpAddr>().unwrap(),
-            8333,
-        ))
-        .expect("should be a valid version message");
-        stream
-            .write(&version_message)
-            .expect("should be able to send version message");
+    messaging_system
+        .send_message(Command::Version)
+        .expect("should be able to send version message");
+
+    // Receive the version message
+    let message = messaging_system
+        .receive_message()
+        .expect("should be able to receive message");
+    match message {
+        MessageType::Verack => panic!("unexpectedly received verack message"),
+        MessageType::Version(_) => {}
+    };
+
+    // Receive the verack message
+    let message = messaging_system
+        .receive_message()
+        .expect("should be able to receive message");
+    match message {
+        MessageType::Verack => {}
+        MessageType::Version(_) => panic!("unexpectedly received version message"),
+    };
+
+    // Send the verack message
+    messaging_system
+        .send_message(Command::Verack)
+        .expect("should be able to send verack message");
+
+    println!("successful handshake");
+}
+
+pub struct MessagingSystem {
+    stream: std::net::TcpStream,
+    data: Vec<u8>,
+    buf: [u8; 4096],
+    socket_address: SocketAddr,
+}
+
+impl MessagingSystem {
+    pub fn try_new(socket_address: SocketAddr) -> Result<Self, std::io::Error> {
+        let stream = TcpStream::connect(&socket_address)?;
+
+        Ok(Self {
+            stream,
+            data: Vec::new(),
+            buf: [0; 4096],
+            socket_address,
+        })
     }
 
-    let mut data = Vec::<u8>::new();
+    pub fn send_message(&mut self, command: Command) -> Result<(), MessageSendError> {
+        let message_packet = match command {
+            Command::Verack => prepare_verack_message(&VerackPayload)?,
+            Command::Version => prepare_version_message(&VersionPayload::create(
+                SystemTime::now(),
+                self.socket_address.ip(),
+                self.socket_address.port(),
+            ))?,
+        };
 
-    // Wait to receive the remote version message (presumably)
-    {
+        Ok(self.stream.write_all(&message_packet)?)
+    }
+
+    pub fn receive_message(&mut self) -> Result<MessageType, MessageReceiveError> {
         'receiving: loop {
-            match parse_message(&data) {
+            match parse_message(&self.data) {
                 Ok((message, bytes_read)) => {
-                    println!("Received message: {message:?}");
-                    data = data.split_off(bytes_read);
-                    break 'receiving;
+                    self.data = self.data.split_off(bytes_read);
+                    return Ok(message);
                 }
                 Err(MessageParseError::UnknownMessageType(bytes_read)) => {
                     let bytes_read = bytes_read as usize;
-                    println!("Unknown message: {:?}", &data[..bytes_read]);
-                    data = data.split_off(bytes_read);
-                    break 'receiving;
+                    self.data = self.data.split_off(bytes_read);
+                    return Err(MessageReceiveError::UnknownMessage);
                 }
                 Err(MessageParseError::NotEnoughData) => {
-                    let mut buf = [0; 4096];
-                    let bytes_read = stream
-                        .read(&mut buf)
-                        .expect("should be able to read receive data");
-                    data.extend(&buf[..bytes_read]);
+                    let bytes_read = self.stream.read(&mut self.buf)?;
+                    self.data.extend(&self.buf[..bytes_read]);
                     continue 'receiving;
                 }
                 Err(e @ MessageParseError::MissingMagicNumber)
                 | Err(e @ MessageParseError::IncorrectChecksum)
-                | Err(e @ MessageParseError::MalformedData) => panic!("{e:?}"),
+                | Err(e @ MessageParseError::MalformedData) => return Err(e.into()),
             };
         }
     }
+}
 
-    // Wait to receive the remote verack message (presumably)
-    {
-        'receiving: loop {
-            match parse_message(&data) {
-                Ok((message, bytes_read)) => {
-                    println!("Received message: {message:?}");
-                    data = data.split_off(bytes_read);
-                    break 'receiving;
-                }
-                Err(MessageParseError::UnknownMessageType(bytes_read)) => {
-                    let bytes_read = bytes_read as usize;
-                    println!("Unknown message: {:?}", &data[..bytes_read]);
-                    data = data.split_off(bytes_read);
-                    break 'receiving;
-                }
-                Err(MessageParseError::NotEnoughData) => {
-                    let mut buf = [0; 4096];
-                    let bytes_read = stream
-                        .read(&mut buf)
-                        .expect("should be able to read receive data");
-                    data.extend(&buf[..bytes_read]);
-                    continue 'receiving;
-                }
-                Err(e @ MessageParseError::MissingMagicNumber)
-                | Err(e @ MessageParseError::IncorrectChecksum)
-                | Err(e @ MessageParseError::MalformedData) => panic!("{e:?}"),
-            };
+#[derive(Debug)]
+pub enum MessageSendError {
+    Creation(binrw::Error),
+    Io(std::io::Error),
+}
+
+impl std::fmt::Display for MessageSendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Creation(e) => e.fmt(f),
+            Self::Io(e) => e.fmt(f),
         }
     }
+}
 
-    // Send my verack message
-    {
-        let version_message =
-            prepare_verack_message(&VerackPayload).expect("should be a valid verack message");
-        stream
-            .write(&version_message)
-            .expect("should be able to send version message");
+impl std::error::Error for MessageSendError {}
+
+impl From<binrw::Error> for MessageSendError {
+    fn from(value: binrw::Error) -> Self {
+        Self::Creation(value)
+    }
+}
+
+impl From<std::io::Error> for MessageSendError {
+    fn from(value: std::io::Error) -> Self {
+        Self::Io(value)
+    }
+}
+
+#[derive(Debug)]
+pub enum MessageReceiveError {
+    Parsing(MessageParseError),
+    UnknownMessage,
+    Io(std::io::Error),
+}
+
+impl std::fmt::Display for MessageReceiveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Parsing(e) => e.fmt(f),
+            Self::UnknownMessage => write!(f, "unknown message"),
+            Self::Io(e) => e.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for MessageReceiveError {}
+
+impl From<MessageParseError> for MessageReceiveError {
+    fn from(value: MessageParseError) -> Self {
+        Self::Parsing(value)
+    }
+}
+
+impl From<std::io::Error> for MessageReceiveError {
+    fn from(value: std::io::Error) -> Self {
+        Self::Io(value)
     }
 }
