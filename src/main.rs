@@ -5,23 +5,20 @@ use std::{
 
 use clap::Parser;
 use command::Command;
-use message::{parse_message, MessageParseError, MessageType};
+use message::{parse_message, prepare_message, MessageParseError, MessageType};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
-use verack_message::prepare_verack_message;
 use verack_payload::VerackPayload;
-use version_message::prepare_version_message;
 use version_payload::VersionPayload;
 
 mod command;
 mod header;
 mod message;
+mod message_preparable;
 mod utils;
-mod verack_message;
 mod verack_payload;
-mod version_message;
 mod version_payload;
 
 #[derive(Debug, Parser)]
@@ -97,8 +94,8 @@ impl MessagingSystem {
 
     pub async fn send_message(&mut self, command: Command) -> Result<(), MessageSendError> {
         let message_packet = match command {
-            Command::Verack => prepare_verack_message(&VerackPayload)?,
-            Command::Version => prepare_version_message(&VersionPayload::create(
+            Command::Verack => prepare_message(VerackPayload)?,
+            Command::Version => prepare_message(VersionPayload::create(
                 SystemTime::now(),
                 self.socket_address.ip(),
                 self.socket_address.port(),

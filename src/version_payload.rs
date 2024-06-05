@@ -6,6 +6,8 @@ use std::{
 
 use binrw::{binrw, BinRead, BinResult, BinWrite};
 
+use crate::{command::Command, message_preparable::MessagePreparable};
+
 #[derive(Debug)]
 #[binrw]
 #[brw(little)]
@@ -150,6 +152,10 @@ impl VersionPayload {
             relay: None,
         }
     }
+}
+
+impl MessagePreparable for VersionPayload {
+    const COMMAND_TYPE: Command = Command::Version;
 }
 
 #[cfg(test)]
