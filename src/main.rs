@@ -1,5 +1,9 @@
-use std::{net::SocketAddr, time::SystemTime};
+use std::{
+    net::{IpAddr, SocketAddr},
+    time::SystemTime,
+};
 
+use clap::Parser;
 use command::Command;
 use message::{parse_message, MessageParseError, MessageType};
 use tokio::{
@@ -20,14 +24,22 @@ mod verack_message;
 mod version;
 mod version_message;
 
+#[derive(Debug, Parser)]
+struct Args {
+    #[arg(short, long)]
+    ip_address: IpAddr,
+    #[arg(short, long, default_value_t = 8333)]
+    port: u16,
+}
+
 #[tokio::main]
 async fn main() {
-    let socket_address = "65.109.34.157:8333"
-        .parse()
-        .expect("IP address and port should be syntactically valid");
-    let mut messaging_system = MessagingSystem::try_new(socket_address)
-        .await
-        .expect("IP address and port should point to an available node");
+    let args = Args::parse();
+
+    let mut messaging_system =
+        MessagingSystem::try_new(SocketAddr::new(args.ip_address, args.port))
+            .await
+            .expect("IP address and port should point to an available node");
 
     // Send my version message
     messaging_system
