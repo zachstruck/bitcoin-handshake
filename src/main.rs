@@ -4,12 +4,13 @@ use std::{
 };
 
 use clap::Parser;
-use command::Command;
-use message::{parse_message, prepare_message, MessageParseError, MessageType};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
+
+use command::Command;
+use message::{parse_message, prepare_message, MessageParseError, MessageType};
 use verack_payload::VerackPayload;
 use version_payload::VersionPayload;
 
