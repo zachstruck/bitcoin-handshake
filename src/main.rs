@@ -1,11 +1,11 @@
-use std::{
-    io::{Read, Write},
-    net::{SocketAddr, TcpStream},
-    time::SystemTime,
-};
+use std::{net::SocketAddr, time::SystemTime};
 
 use command::Command;
 use message::{parse_message, MessageParseError, MessageType};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+};
 use verack::VerackPayload;
 use verack_message::prepare_verack_message;
 use version::VersionPayload;
@@ -20,21 +20,25 @@ mod verack_message;
 mod version;
 mod version_message;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let socket_address = "65.109.34.157:8333"
         .parse()
         .expect("IP address and port should be syntactically valid");
     let mut messaging_system = MessagingSystem::try_new(socket_address)
+        .await
         .expect("IP address and port should point to an available node");
 
     // Send my version message
     messaging_system
         .send_message(Command::Version)
+        .await
         .expect("should be able to send version message");
 
     // Receive the version message
     let message = messaging_system
         .receive_message()
+        .await
         .expect("should be able to receive message");
     match message {
         MessageType::Verack => panic!("unexpectedly received verack message"),
@@ -44,6 +48,7 @@ fn main() {
     // Receive the verack message
     let message = messaging_system
         .receive_message()
+        .await
         .expect("should be able to receive message");
     match message {
         MessageType::Verack => {}
@@ -53,21 +58,22 @@ fn main() {
     // Send the verack message
     messaging_system
         .send_message(Command::Verack)
+        .await
         .expect("should be able to send verack message");
 
     println!("successful handshake");
 }
 
 pub struct MessagingSystem {
-    stream: std::net::TcpStream,
+    stream: tokio::net::TcpStream,
     data: Vec<u8>,
     buf: [u8; 4096],
     socket_address: SocketAddr,
 }
 
 impl MessagingSystem {
-    pub fn try_new(socket_address: SocketAddr) -> Result<Self, std::io::Error> {
-        let stream = TcpStream::connect(&socket_address)?;
+    pub async fn try_new(socket_address: SocketAddr) -> std::io::Result<Self> {
+        let stream = TcpStream::connect(&socket_address).await?;
 
         Ok(Self {
             stream,
@@ -77,7 +83,7 @@ impl MessagingSystem {
         })
     }
 
-    pub fn send_message(&mut self, command: Command) -> Result<(), MessageSendError> {
+    pub async fn send_message(&mut self, command: Command) -> Result<(), MessageSendError> {
         let message_packet = match command {
             Command::Verack => prepare_verack_message(&VerackPayload)?,
             Command::Version => prepare_version_message(&VersionPayload::create(
@@ -87,10 +93,10 @@ impl MessagingSystem {
             ))?,
         };
 
-        Ok(self.stream.write_all(&message_packet)?)
+        Ok(self.stream.write_all(&message_packet).await?)
     }
 
-    pub fn receive_message(&mut self) -> Result<MessageType, MessageReceiveError> {
+    pub async fn receive_message(&mut self) -> Result<MessageType, MessageReceiveError> {
         'receiving: loop {
             match parse_message(&self.data) {
                 Ok((message, bytes_read)) => {
@@ -103,7 +109,7 @@ impl MessagingSystem {
                     return Err(MessageReceiveError::UnknownMessage);
                 }
                 Err(MessageParseError::NotEnoughData) => {
-                    let bytes_read = self.stream.read(&mut self.buf)?;
+                    let bytes_read = self.stream.read(&mut self.buf).await?;
                     self.data.extend(&self.buf[..bytes_read]);
                     continue 'receiving;
                 }
