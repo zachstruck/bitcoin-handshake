@@ -61,7 +61,7 @@ fn read_string() -> BinResult<Vec<u8>> {
         len @ 0..=0xFC => len as u64,
         0xFD => u16::read_options(reader, endian, ())? as u64,
         0xFE => u32::read_options(reader, endian, ())? as u64,
-        0xFF => u64::read_options(reader, endian, ())? as u64,
+        0xFF => u64::read_options(reader, endian, ())?,
     };
 
     let mut s = Vec::with_capacity(len as usize);
@@ -91,7 +91,7 @@ fn write_string(s: &Vec<u8>) -> BinResult<()> {
         }
         0x1_0000_0000..=0xFFFF_FFFF_FFFF_FFFF => {
             0xFFu8.write_options(writer, endian, ())?;
-            (len as u64).write_options(writer, endian, ())?;
+            len.write_options(writer, endian, ())?;
         }
     };
 
@@ -116,7 +116,7 @@ fn read_optional_bool() -> BinResult<Option<bool>> {
             }
             _ => return Err(binrw::error::Error::Io(io_error)),
         },
-        Err(e @ _) => return Err(e),
+        Err(e) => return Err(e),
     };
     Ok(b)
 }
